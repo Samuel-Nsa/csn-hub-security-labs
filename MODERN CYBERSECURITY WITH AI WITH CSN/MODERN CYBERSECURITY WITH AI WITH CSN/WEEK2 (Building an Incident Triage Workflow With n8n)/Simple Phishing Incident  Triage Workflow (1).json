@@ -1,0 +1,263 @@
+{
+  "name": "Simple Phishing Incident  Triage Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "security-inbox",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        16,
+        0
+      ],
+      "id": "c0995a58-90b8-42b8-aea3-f10a58bae187",
+      "name": "Ingest Email",
+      "webhookId": "fa7c5b03-b77a-4694-ae4c-3a3cb730b4af"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d0aa577a-0850-4d09-9bec-ee9a82b6e4a4",
+              "name": "email_sender",
+              "value": "={{ $json.body.message.from }}",
+              "type": "string"
+            },
+            {
+              "id": "a5f2dc79-290a-43a8-a45c-4519865a552c",
+              "name": "email_subject",
+              "value": "={{ $json.body.message.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "e4c25417-f621-40b4-a5b7-985803eb53f5",
+              "name": "email_body",
+              "value": "={{ $json.body.message.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        0
+      ],
+      "id": "222f4b63-40d4-4a1e-a9ab-6454b3545e02",
+      "name": "Parse Fields",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash-lite",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash-lite"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are an email security triage assistant.\n\nAnalyze this inbound email and return ONLY valid JSON.\n\nYour tasks:\n1. Extract the sender email.\n2. Extract the subject.\n3. Extract any URLs found in the email.\n4. Determine whether the email is likely phishing.\n5. Assign a risk score and severity.\n6. Summarize why.\n7. Recommend an action.\n\nImportant rules:\n- Urgency, account verification requests, login prompts, OTP requests, payment requests, password resets, suspicious links, and social engineering language should increase risk.\n- Public email providers can still be used in phishing.\n- Return raw JSON only.\n- Do not use markdown.\n- Do not wrap the response in code fences.\n\nEmail:\nSender: {{ $json.email_sender }}\nSubject: {{ $json.email_subject }}\nBody: {{ $json.email_body }}\n\nScoring scale:\n- 75 to 100 = High\n- 40 to 74 = Medium\n- 0 to 39 = Low\n\nReturn exactly this JSON structure:\n{\n \"sender_email\": \"\",\n \"subject\": \"\",\n \"urls\": [],\n \"sender_domain\": \"\",\n \"risk_score\": 0,\n \"severity\": \"Low\",\n \"phishing_likely\": false,\n \"summary\": \"\",\n \"reasons\": [],\n \"recommended_action\": \"\"\n}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        0
+      ],
+      "id": "1beadf5d-bbd1-47dd-868f-4af5dc96b455",
+      "name": "Analyze Email Content",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "iPETnqWRnRjLMWTt",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "let parsed = {};\nlet rawText = '';\n\ntry {\n  rawText =\n    $json.content?.parts?.[0]?.text ||\n    $json.candidates?.[0]?.content?.parts?.[0]?.text ||\n    $json.text ||\n    '';\n\n  // Remove code fences if present\n  const cleaned = typeof rawText === 'string'\n    ? rawText.replace(/```json|```/gi, '').trim()\n    : '';\n\n  // Try direct parse first (best case)\n  try {\n    parsed = JSON.parse(cleaned);\n  } catch {\n    // Fallback: extract JSON block (greedy to capture full object)\n    const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n    if (match) {\n      parsed = JSON.parse(match[0]);\n    }\n  }\n\n} catch (error) {\n  parsed = {\n    error: 'Parsing failed',\n    raw_output: rawText\n  };\n}\n\nreturn {\n  json: {\n    sender_email: parsed.sender_email ?? '',\n    parsed_subject: parsed.subject ?? '',\n    urls: parsed.urls ?? [],\n    sender_domain: parsed.sender_domain ?? '',\n    risk_score: parsed.risk_score ?? 0,\n    severity: parsed.severity ?? 'Low',\n    phishing_likely: parsed.phishing_likely ?? false,\n    ai_summary: parsed.summary ?? '',\n    ai_reasons: parsed.reasons ?? [],\n    recommended_action: parsed.recommended_action ?? '',\n    debug_error: parsed.error ?? null\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        0
+      ],
+      "id": "2714fd2d-b8f9-4ce8-856b-adb98c847a45",
+      "name": "Parse Analysis Results"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1ROE5ilHWfTQvJ1unKUxGqxcyJYpiDS9zB1Vm1RhOBuQ",
+          "mode": "list",
+          "cachedResultName": "Simple Phishing Incident  Triage Workflow",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ROE5ilHWfTQvJ1unKUxGqxcyJYpiDS9zB1Vm1RhOBuQ/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1709886797,
+          "mode": "list",
+          "cachedResultName": "Simple Phishing Incident  Triage Workflow",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ROE5ilHWfTQvJ1unKUxGqxcyJYpiDS9zB1Vm1RhOBuQ/edit#gid=1709886797"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Sender": "={{ $json.sender_email }}",
+            "Subject": "={{ $json.parsed_subject }}",
+            "Risk Score": "={{ $json.risk_score }}",
+            "Severity": "={{ $json.severity }}",
+            "Summary": "={{ $json.ai_summary }}"
+          },
+          "matchingColumns": [
+            "Sender"
+          ],
+          "schema": [
+            {
+              "id": "Sender",
+              "displayName": "Sender",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Subject",
+              "displayName": "Subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Risk Score",
+              "displayName": "Risk Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Severity",
+              "displayName": "Severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        976,
+        0
+      ],
+      "id": "ab3c9992-7bbb-4385-a0e3-518625d9da06",
+      "name": "Append row in sheet",
+      "alwaysOutputData": false,
+      "executeOnce": false,
+      "retryOnFail": false,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "L9B95qMSUa1tPk11",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Ingest Email": {
+      "main": [
+        [
+          {
+            "node": "Parse Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Fields": {
+      "main": [
+        [
+          {
+            "node": "Analyze Email Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Email Content": {
+      "main": [
+        [
+          {
+            "node": "Parse Analysis Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Analysis Results": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "8246d3b9-3042-4151-95ac-d1e16a263a7e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "713cba97d8307463f637b9d58e1b501757f2542ccece0af64c4669465ad2d461"
+  },
+  "id": "4VkF4SZp0DrbpXm3",
+  "tags": []
+}
